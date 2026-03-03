@@ -65,7 +65,7 @@ def _verify(creds: HTTPBasicCredentials = Depends(security)) -> str:
 def _run_ocr_subprocess(job: dict) -> tuple[str, str, str]:
     """Run OCR as subprocess, reading stdout live for progress updates."""
     cmd = [
-        sys.executable, "/app/qwen_ocr.py",
+        sys.executable, str(Path(__file__).parent / "qwen_ocr.py"),
         job["pdf_path"], job["output_path"],
         "--dpi", str(job["dpi"]),
         "--verbose",
@@ -274,7 +274,7 @@ async def delete_job(job_id: str, _user: str = Depends(_verify)):
 def _run_convert(pdf_path: str, output_path: str) -> str:
     """Run OCR pipeline synchronously, return markdown string."""
     cmd = [
-        sys.executable, "/app/qwen_ocr.py",
+        sys.executable, str(Path(__file__).parent / "qwen_ocr.py"),
         pdf_path, output_path,
         "--dpi", os.environ.get("OCR_DPI", "200"),
         "--verbose",
