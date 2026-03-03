@@ -1,14 +1,14 @@
 # Advanced OCR LLM
 
-PDF to Markdown conversion using vision LLMs via Ollama.
-Pages are sent as images to Ollama, thinking blocks stripped, result assembled as clean Markdown.
+PDF to Markdown conversion using vision LLMs via llama.cpp.
+Pages are sent as images to llama.cpp server, thinking blocks stripped, result assembled as clean Markdown.
 
 Compatible with [obsidian-marker](https://github.com/L3-N0X/obsidian-marker) plugin (self-hosted docker mode).
 
 ## How It Works
 
 ```
-PDF → page images (PyMuPDF) → Ollama (qwen3-vl:30b) → strip </think> → Markdown
+PDF → page images (PyMuPDF) → llama.cpp (QWEN3.5) → strip </think> → Markdown
 ```
 
 - 2 pages processed in parallel per batch
@@ -19,7 +19,7 @@ PDF → page images (PyMuPDF) → Ollama (qwen3-vl:30b) → strip </think> → M
 ## Requirements
 
 - Docker
-- Ollama instance with `qwen3-vl:30b` loaded (separate host or local)
+- llama.cpp server with `QWEN3.5` loaded (separate host or local)
 
 ---
 
@@ -39,10 +39,10 @@ docker run -d \
   -e OCR_WEB_MODE=true \
   -e OCR_WEB_USER=admin \
   -e OCR_WEB_PASS=changeme \
-  -e OLLAMA_URL=http://<ollama-host>:11434 \
-  -e OLLAMA_MODEL=qwen3-vl:30b \
-  -e OLLAMA_TEMPERATURE=0.25 \
-  -e OLLAMA_NUM_CTX=30000 \
+  -e LLM_URL=http://<llm-host>:8080/v1 \
+  -e LLM_MODEL=QWEN3.5 \
+  -e LLM_TEMPERATURE=0.25 \
+  -e LLM_MAX_TOKENS=30000 \
   ocr-pipeline
 ```
 
@@ -100,10 +100,10 @@ docker run -d \
   -e OCR_WEB_MODE=true \
   -e OCR_WEB_USER=admin \
   -e OCR_WEB_PASS=changeme \
-  -e OLLAMA_URL=http://<ollama-host>:11434 \
-  -e OLLAMA_MODEL=qwen3-vl:30b \
-  -e OLLAMA_TEMPERATURE=0.25 \
-  -e OLLAMA_NUM_CTX=30000 \
+  -e LLM_URL=http://<llm-host>:8080/v1 \
+  -e LLM_MODEL=QWEN3.5 \
+  -e LLM_TEMPERATURE=0.25 \
+  -e LLM_MAX_TOKENS=30000 \
   ocr-pipeline
 ```
 
@@ -126,10 +126,10 @@ The `/convert` endpoint accepts `pdf_file` multipart and returns Marker-compatib
 
 | Variable | Default | Description |
 |---|---|---|
-| `OLLAMA_URL` | `http://192.168.0.169:11434` | Ollama API endpoint |
-| `OLLAMA_MODEL` | `qwen3-vl:30b` | Model name in Ollama |
-| `OLLAMA_TEMPERATURE` | `0.25` | Sampling temperature |
-| `OLLAMA_NUM_CTX` | `30000` | Context window (tokens) |
+| `LLM_URL` | `http://192.168.0.169:8080/v1` | llama.cpp API endpoint |
+| `LLM_MODEL` | `QWEN3.5` | Model name |
+| `LLM_TEMPERATURE` | `0.25` | Sampling temperature |
+| `LLM_MAX_TOKENS` | `30000` | Max output tokens |
 | `OCR_WEB_USER` | `admin` | Web UI username |
 | `OCR_WEB_PASS` | `changeme` | Web UI password |
 | `OCR_DPI` | `200` | PDF render resolution |
@@ -156,7 +156,7 @@ The `/convert` endpoint accepts `pdf_file` multipart and returns Marker-compatib
 │   └── Dockerfile          # python:3.11-slim, ~400MB, no GPU required
 ├── src/
 │   ├── entrypoint.py
-│   ├── qwen_ocr.py         # core OCR pipeline (Ollama API)
+│   ├── qwen_ocr.py         # core OCR pipeline (llama.cpp API)
 │   ├── web_app.py          # FastAPI web UI + /convert endpoint
 │   └── templates/
 │       └── index.html

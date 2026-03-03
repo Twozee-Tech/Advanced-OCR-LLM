@@ -23,16 +23,16 @@ from PIL import Image
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-OLLAMA_URL   = os.environ.get("OLLAMA_URL",   "http://192.168.0.169:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-vl:30b")
-TEMPERATURE  = float(os.environ.get("OLLAMA_TEMPERATURE", "0.25"))
-NUM_CTX      = int(os.environ.get("OLLAMA_NUM_CTX", "30000"))
+LLM_URL   = os.environ.get("LLM_URL",         "http://192.168.0.169:8080/v1")
+LLM_MODEL = os.environ.get("LLM_MODEL",       "QWEN3.5")
+TEMPERATURE  = float(os.environ.get("LLM_TEMPERATURE", "0.25"))
+NUM_CTX      = int(os.environ.get("LLM_MAX_TOKENS",    "30000"))
 BATCH_SIZE   = 2
 
 OCR_PROMPT = """You are a document OCR system. Convert this page to markdown.
 
 1. Do OCR of the page - extract all text exactly as it appears.
-2. Diagrams and images must be included and described in very detailed manner.
+2. Diagrams and images must be included and described in very detailed manner, including connections and flow using mermaid.
 3. Put picture/diagram description in the exact same spot as it was on the page.
 4. Do not add any text from yourself that is not on the page."""
 
@@ -73,38 +73,38 @@ def strip_think(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 def ocr_page(img: Image.Image, page_num: int, verbose: bool = False) -> str:
-    """Send one page image to Ollama, return cleaned markdown."""
+    """Send one page image to llama.cpp, return cleaned markdown."""
     b64 = image_to_base64(img)
 
     payload = {
-        "model": OLLAMA_MODEL,
+        "model": LLM_MODEL,
         "messages": [
             {
                 "role": "user",
-                "content": OCR_PROMPT,
-                "images": [b64],
+                "content": [
+                    {"type": "text", "text": OCR_PROMPT},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                ],
             }
         ],
         "stream": False,
-        "options": {
-            "temperature": TEMPERATURE,
-            "num_ctx":     NUM_CTX,
-        },
+        "temperature": TEMPERATURE,
+        "max_tokens": NUM_CTX,
     }
 
     start = time.time()
     try:
         resp = requests.post(
-            f"{OLLAMA_URL}/api/chat",
+            f"{LLM_URL}/chat/completions",
             json=payload,
             timeout=600,
         )
         resp.raise_for_status()
     except requests.RequestException as e:
-        print(f"  Page {page_num}: Ollama request failed — {e}", flush=True)
+        print(f"  Page {page_num}: llama.cpp request failed — {e}", flush=True)
         return f"*[OCR failed for page {page_num}: {e}]*"
 
-    text = resp.json()["message"]["content"]
+    text = resp.json()["choices"][0]["message"]["content"]
     text = strip_think(text).strip()
     elapsed = time.time() - start
 
@@ -131,7 +131,7 @@ def run_pipeline(
         output_path = pdf_path.with_suffix(".md")
     output_path = Path(output_path)
 
-    print(f"Qwen OCR: {pdf_path.name} → Ollama {OLLAMA_URL} ({OLLAMA_MODEL})", flush=True)
+    print(f"Qwen OCR: {pdf_path.name} → Ollama {LLM_URL} ({LLM_MODEL})", flush=True)
     print(f"Settings: temperature={TEMPERATURE}, num_ctx={NUM_CTX}, batch={BATCH_SIZE}", flush=True)
 
     images = pdf_to_images(str(pdf_path), dpi=dpi)
@@ -161,7 +161,7 @@ def run_pipeline(
     print(f"Done in {total_time:.1f}s ({total_time/num_pages:.1f}s/page)", flush=True)
 
     # Assemble markdown
-    header = f"# {pdf_path.stem}\n\n*Pages: {num_pages} | Model: {OLLAMA_MODEL}*\n\n---\n\n"
+    header = f"# {pdf_path.stem}\n\n*Pages: {num_pages} | Model: {LLM_MODEL}*\n\n---\n\n"
     pages  = "\n\n---\n\n".join(
         f"<!-- Page {i+1} -->\n\n{text}" for i, text in enumerate(results)
     )

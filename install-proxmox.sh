@@ -136,11 +136,11 @@ echo ""
 echo -e "${YELLOW}[4/6] Configure application...${NC}"
 echo ""
 
-echo -e "  ${BOLD}Ollama${NC} — the host running qwen3-vl:30b"
-OLLAMA_URL=$(ask   "  Ollama URL [http://192.168.0.169:11434]: "  "http://192.168.0.169:11434")
-OLLAMA_MODEL=$(ask "  Model [qwen3-vl:30b]: "                     "qwen3-vl:30b")
-OLLAMA_TEMP=$(ask  "  Temperature [0.25]: "                       "0.25")
-OLLAMA_CTX=$(ask   "  Context tokens [30000]: "                   "30000")
+echo -e "  ${BOLD}LLM backend${NC} — llama.cpp server"
+LLM_URL=$(ask   "  LLM URL [http://192.168.0.169:8080/v1]: "  "http://192.168.0.169:8080/v1")
+LLM_MODEL=$(ask "  Model [QWEN3.5]: "                         "QWEN3.5")
+LLM_TEMP=$(ask  "  Temperature [0.25]: "                      "0.25")
+LLM_CTX=$(ask   "  Max tokens [30000]: "                      "30000")
 
 echo ""
 echo -e "  ${BOLD}Web UI${NC}"
@@ -219,10 +219,10 @@ Environment=OCR_WEB_MODE=true
 Environment=OCR_WEB_PORT=${WEB_PORT}
 Environment=OCR_WEB_USER=${WEB_USER}
 Environment=OCR_WEB_PASS=${WEB_PASS}
-Environment=OLLAMA_URL=${OLLAMA_URL}
-Environment=OLLAMA_MODEL=${OLLAMA_MODEL}
-Environment=OLLAMA_TEMPERATURE=${OLLAMA_TEMP}
-Environment=OLLAMA_NUM_CTX=${OLLAMA_CTX}
+Environment=LLM_URL=${LLM_URL}
+Environment=LLM_MODEL=${LLM_MODEL}
+Environment=LLM_TEMPERATURE=${LLM_TEMP}
+Environment=LLM_MAX_TOKENS=${LLM_CTX}
 Environment=OCR_DATA_DIR=${DATA_PATH}
 
 StandardOutput=journal
@@ -255,7 +255,7 @@ echo "╚═══════════════════════�
 echo -e "${NC}"
 echo -e "  Web UI:   ${BOLD}http://${CONTAINER_IP}:${WEB_PORT}${NC}"
 echo -e "  Login:    ${WEB_USER} / (your password)"
-echo -e "  Ollama:   ${OLLAMA_URL}  (${OLLAMA_MODEL})"
+echo -e "  LLM:      ${LLM_URL}  (${LLM_MODEL})"
 echo ""
 echo "  Obsidian plugin → Self-hosted:"
 echo -e "    URL: ${BOLD}http://${CONTAINER_IP}:${WEB_PORT}${NC}"
