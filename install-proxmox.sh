@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Advanced OCR LLM — Proxmox LXC Installer
+# Advanced OCR LLM — Proxmox LXC Native Installer (no Docker)
 #
 # Run on the Proxmox HOST shell:
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Twozee-Tech/Advanced-OCR-LLM/main/install-proxmox.sh)"
 #
-# Creates a Debian 12 LXC, installs Docker, builds and runs the OCR container.
+# Creates a Debian 12 LXC, installs Python 3.11 + uvicorn directly.
+# No Docker — lighter footprint (~80 MB RAM idle vs ~150 MB with Docker).
 # The OCR engine itself runs on a separate Ollama host — no GPU required here.
 
 set -euo pipefail
@@ -38,12 +39,13 @@ APP_DIR="/opt/ocr"
 echo -e "${BLUE}${BOLD}"
 echo "╔══════════════════════════════════════════════╗"
 echo "║   Advanced OCR LLM                          ║"
-echo "║   Proxmox LXC + Docker Installer            ║"
+echo "║   Proxmox LXC — Native Python Installer     ║"
 echo "╚══════════════════════════════════════════════╝"
 echo -e "${NC}"
 echo "  PDF → Ollama (qwen3-vl) → Markdown"
 echo "  Web UI + Marker-compatible API (/convert)"
-echo "  Idle RAM: ~150 MB  |  Disk: ~1.5 GB"
+echo "  No Docker. Python 3.11 + uvicorn directly in LXC."
+echo "  Idle RAM: ~80 MB  |  Disk: ~600 MB"
 echo ""
 
 # ── 1. verify Proxmox host ────────────────────────────────────────────────────
@@ -108,15 +110,15 @@ echo ""
 
 DEFAULT_STORAGE=$(pvesm status --content rootdir 2>/dev/null \
     | awk 'NR>1 {print $1; exit}')
-DEFAULT_STORAGE=${DEFAULT_STORAGE:-local-lvm}
+DEFAULT_STORAGE=${DEFAULT_STORAGE:-local}
 
 CTID=$(pvesh get /cluster/nextid 2>/dev/null || echo "200")
-CTID=$(ask     "  Container ID [${CTID}]: "            "$CTID")
-STORAGE=$(ask  "  Storage [${DEFAULT_STORAGE}]: "      "$DEFAULT_STORAGE")
-HOSTNAME=$(ask "  Hostname [ocr-pipeline]: "            "ocr-pipeline")
-RAM=$(ask      "  RAM MB [2048]: "                     "2048")
-DISK=$(ask     "  Disk GB [8]: "                       "8")
-CORES=$(ask    "  CPU cores [2]: "                     "2")
+CTID=$(ask     "  Container ID [${CTID}]: "       "$CTID")
+STORAGE=$(ask  "  Storage [${DEFAULT_STORAGE}]: " "$DEFAULT_STORAGE")
+HOSTNAME=$(ask "  Hostname [ocr-pipeline]: "       "ocr-pipeline")
+RAM=$(ask      "  RAM MB [512]: "                  "512")
+DISK=$(ask     "  Disk GB [4]: "                   "4")
+CORES=$(ask    "  CPU cores [2]: "                 "2")
 
 echo ""
 LAST_IP=$(grep -h '^net0:' /etc/pve/lxc/*.conf 2>/dev/null \
@@ -142,11 +144,11 @@ OLLAMA_CTX=$(ask   "  Context tokens [30000]: "                   "30000")
 
 echo ""
 echo -e "  ${BOLD}Web UI${NC}"
-WEB_USER=$(ask     "  Username [admin]: "   "admin")
+WEB_USER=$(ask    "  Username [admin]: "        "admin")
 WEB_PASS=$(ask_secret "  Password: ")
 [[ -z "$WEB_PASS" ]] && { err "Password cannot be empty."; exit 1; }
-WEB_PORT=$(ask     "  Port [14000]: "       "14000")
-DATA_PATH=$(ask    "  Data path [/data/ocr]: " "/data/ocr")
+WEB_PORT=$(ask    "  Port [14000]: "            "14000")
+DATA_PATH=$(ask   "  Data path [/data/ocr]: "  "/data/ocr")
 
 # ── 5. create LXC ────────────────────────────────────────────────────────────
 echo ""
@@ -165,7 +167,6 @@ pct create "$CTID" "$TEMPLATE_STOR" \
     --rootfs   "${STORAGE}:${DISK}" \
     --net0     "name=eth0,bridge=${BRIDGE},${NET_IP}" \
     --unprivileged 1 \
-    --features nesting=1 \
     --ostype   debian \
     --start    1 \
     --onboot   1
@@ -174,9 +175,9 @@ ok "Container ${CTID} created and started"
 info "Waiting for boot..."
 sleep 6
 
-# ── 6. provision: Docker + build + run ───────────────────────────────────────
+# ── 6. provision: Python + venv + systemd ────────────────────────────────────
 echo ""
-echo -e "${YELLOW}[6/6] Provisioning (Docker, clone, build, deploy)...${NC}"
+echo -e "${YELLOW}[6/6] Provisioning (Python 3.11 + deps + systemd)...${NC}"
 info "This takes 2–4 minutes on first run."
 
 pct exec "$CTID" -- bash -euo pipefail << PROVISION
@@ -185,50 +186,63 @@ export DEBIAN_FRONTEND=noninteractive
 echo "--- Updating packages ---"
 apt-get update -qq
 apt-get install -y --no-install-recommends \
-    curl git ca-certificates gnupg lsb-release
-
-echo "--- Installing Docker ---"
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/debian/gpg \
-    | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-chmod a+r /etc/apt/keyrings/docker.gpg
-echo "deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/debian \$(lsb_release -cs) stable" \
-  > /etc/apt/sources.list.d/docker.list
-apt-get update -qq
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-systemctl enable docker
-systemctl start docker
-echo "Docker: \$(docker --version)"
+    python3 python3-venv python3-dev \
+    gcc git curl ca-certificates \
+    libmupdf-dev
 
 echo "--- Cloning repository ---"
 git clone --depth=1 "https://github.com/${REPO}.git" "${APP_DIR}"
 
-echo "--- Building Docker image ---"
-cd "${APP_DIR}"
-docker build -f docker/Dockerfile -t ocr-pipeline .
-echo "Image built."
+echo "--- Creating virtualenv ---"
+python3 -m venv "${APP_DIR}/.venv"
+"${APP_DIR}/.venv/bin/pip" install --upgrade pip --quiet
+"${APP_DIR}/.venv/bin/pip" install --no-cache-dir \
+    PyMuPDF Pillow requests fastapi "uvicorn[standard]" python-multipart
+
+mkdir -p "${DATA_PATH}/input" "${DATA_PATH}/output" "${DATA_PATH}/uploads"
 PROVISION
 
-# Pass credentials via pct exec env (avoids embedding in heredoc)
-pct exec "$CTID" -- bash -euo pipefail -c "
-mkdir -p '${DATA_PATH}'
-docker run -d \
-  --name ocr-pipeline \
-  --restart unless-stopped \
-  -p ${WEB_PORT}:14000 \
-  -v '${DATA_PATH}:/data' \
-  -e OCR_WEB_MODE=true \
-  -e OCR_WEB_USER='${WEB_USER}' \
-  -e OCR_WEB_PASS='${WEB_PASS}' \
-  -e OLLAMA_URL='${OLLAMA_URL}' \
-  -e OLLAMA_MODEL='${OLLAMA_MODEL}' \
-  -e OLLAMA_TEMPERATURE='${OLLAMA_TEMP}' \
-  -e OLLAMA_NUM_CTX='${OLLAMA_CTX}' \
-  ocr-pipeline
-"
+# ---- write systemd unit (from outer shell to avoid nested heredoc issues) ----
+UNIT=$(cat << EOF
+[Unit]
+Description=Advanced OCR LLM
+After=network.target
 
-ok "Container deployed"
+[Service]
+Type=simple
+WorkingDirectory=${APP_DIR}/src
+ExecStart=${APP_DIR}/.venv/bin/python3 /app/entrypoint.py
+Restart=always
+RestartSec=5
+
+Environment=OCR_WEB_MODE=true
+Environment=OCR_WEB_PORT=${WEB_PORT}
+Environment=OCR_WEB_USER=${WEB_USER}
+Environment=OCR_WEB_PASS=${WEB_PASS}
+Environment=OLLAMA_URL=${OLLAMA_URL}
+Environment=OLLAMA_MODEL=${OLLAMA_MODEL}
+Environment=OLLAMA_TEMPERATURE=${OLLAMA_TEMP}
+Environment=OLLAMA_NUM_CTX=${OLLAMA_CTX}
+Environment=OCR_DATA_DIR=${DATA_PATH}
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+)
+echo "$UNIT" > /tmp/ocr-pipeline.service
+pct push "$CTID" /tmp/ocr-pipeline.service /etc/systemd/system/ocr-pipeline.service
+rm -f /tmp/ocr-pipeline.service
+
+pct exec "$CTID" -- bash -euo pipefail << 'FINALIZE'
+systemctl daemon-reload
+systemctl enable ocr-pipeline
+systemctl start ocr-pipeline
+sleep 3
+systemctl is-active ocr-pipeline && echo "Service running." || { journalctl -u ocr-pipeline --no-pager -n 20; exit 1; }
+FINALIZE
 
 CONTAINER_IP=$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}' || echo "<container-ip>")
 
@@ -239,17 +253,18 @@ echo "╔═══════════════════════�
 echo "║   Installation complete!                     ║"
 echo "╚══════════════════════════════════════════════╝"
 echo -e "${NC}"
-echo -e "  Web UI:    ${BOLD}http://${CONTAINER_IP}:${WEB_PORT}${NC}"
-echo -e "  Login:     ${WEB_USER} / (your password)"
-echo -e "  Ollama:    ${OLLAMA_URL}  (${OLLAMA_MODEL})"
+echo -e "  Web UI:   ${BOLD}http://${CONTAINER_IP}:${WEB_PORT}${NC}"
+echo -e "  Login:    ${WEB_USER} / (your password)"
+echo -e "  Ollama:   ${OLLAMA_URL}  (${OLLAMA_MODEL})"
 echo ""
 echo "  Obsidian plugin → Self-hosted (Docker):"
 echo -e "    URL: ${BOLD}http://${CONTAINER_IP}:${WEB_PORT}${NC}"
 echo ""
 echo "  Management (run on Proxmox host):"
-echo "    pct exec ${CTID} -- docker logs -f ocr-pipeline"
-echo "    pct exec ${CTID} -- docker restart ocr-pipeline"
+echo "    pct exec ${CTID} -- systemctl status ocr-pipeline"
+echo "    pct exec ${CTID} -- journalctl -u ocr-pipeline -f"
+echo "    pct exec ${CTID} -- systemctl restart ocr-pipeline"
 echo ""
 echo "  Update:"
-echo "    pct exec ${CTID} -- bash -c 'cd ${APP_DIR} && git pull && docker build -f docker/Dockerfile -t ocr-pipeline . && docker restart ocr-pipeline'"
+echo "    pct exec ${CTID} -- bash -c 'cd ${APP_DIR} && git pull && systemctl restart ocr-pipeline'"
 echo ""
