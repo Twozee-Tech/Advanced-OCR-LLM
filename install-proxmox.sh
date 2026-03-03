@@ -211,7 +211,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=${APP_DIR}/src
-ExecStart=${APP_DIR}/.venv/bin/python3 /app/entrypoint.py
+ExecStart=${APP_DIR}/.venv/bin/python3 ${APP_DIR}/src/entrypoint.py
 Restart=always
 RestartSec=5
 
